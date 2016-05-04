@@ -34,3 +34,4 @@
 *.mk
 *.d
 Debug/os3
+/Debug/

@@ -1,4 +1,6 @@
 #include "BoundedBuffer.h"
+#include <stdio.h>
+#include <stdlib.h>
 
 /*
  * Initializes the buffer with the specified capacity.
@@ -46,8 +48,15 @@ int bounded_buffer_enqueue(BoundedBuffer *buff, char *data) {
 	if (buff->finished) { return 0; }
 
 	// If the buffer is full - wait until it isn't full
-	if (buff->size == buff->capacity) {
-		if (buff->finished) { return 0; }
+
+	// if (buff->size == buff->capacity) { //it's better to use a while loop
+	// see the doc about conditions to know the reason
+
+	while (buff->size == buff->capacity) {
+
+		// if (buff->finished) { return 0; } we don't need this line
+		// because we are in the critical section (the lock is ours)
+
 		pthread_cond_wait(&(buff->q_empty), &(buff->mutex));
 		if (buff->finished) { return 0; }
 	}
@@ -55,7 +64,7 @@ int bounded_buffer_enqueue(BoundedBuffer *buff, char *data) {
 	// Enqueues the given string
 	int pos = buff->tail;
 	buff->buffer[pos] = data;
-	buff->tail++;
+	buff->tail = (buff->tail + 1) % buff->capacity; // don't forget modulo :)
 	buff->size++;
 
 	// Signal for any thread waiting for a value
@@ -89,7 +98,10 @@ char *bounded_buffer_dequeue(BoundedBuffer *buff) {
 	if (buff->finished) { return 0; }
 
 	// If the buffer is empty - wait until it isn't empty
-	if (!buff->size) {
+
+	//if (!buff->size) {
+	while (!buff->size) {
+
 		if (buff->finished) { return 0; }
 		pthread_cond_wait(&(buff->q_full), &(buff->mutex));
 		if (buff->finished) { return 0; }
@@ -98,7 +110,7 @@ char *bounded_buffer_dequeue(BoundedBuffer *buff) {
 	// Dequeues the head element
 	int pos = buff->head;
 	headElement = buff->buffer[pos];
-	buff->head++;
+	buff->head = (buff->head  + 1) % buff->capacity;
 	buff->size--;
 
 	// Signal for any thread waiting for a value
