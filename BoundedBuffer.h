@@ -2,7 +2,6 @@
 #define BOUNDEDBUFFER_H_
 
 #include <pthread.h>
-#include <semaphore.h>
 
 /*
  * Interface file for a thread-safe synchronized bounded buffer
@@ -17,8 +16,12 @@ typedef struct {
 	int capacity;				// Capacity of the buffer
 	int head;					// Index of the head of the buffer
 	int tail;					// Index of the tail of the buffer
-	sem_t *avail, *empty, *cs;			// Semaphores
 	int finished;				// Finished flag
+
+	pthread_mutex_t mutex;
+	pthread_cond_t q_empty; 	// mutex and conditions
+	pthread_cond_t q_full;
+
 } BoundedBuffer;
 
 /*
