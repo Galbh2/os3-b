@@ -8,18 +8,20 @@
  */
 void bounded_buffer_init(BoundedBuffer *buff, int capacity) {
 
-	buff->size = capacity;
-	buff->capacity = 0;
+	buff->size = 0;
+	buff->finished = 0;
 	buff->head = 0;
 	buff->tail = 0;
+
+	buff->capacity = capacity;
 
 	buff->buffer = (char**) malloc(sizeof(char**) * capacity);
 	if(buff->buffer == 0){
 		perror("memory allocation error");
 	} else {
 		pthread_mutex_init(&(buff->mutex), NULL);
-		pthread_cond_init(&(buff->cv_empty), NULL);
-		pthread_cond_init(&(buff->cv_full), NULL);
+		pthread_cond_init(&(buff->q_empty), NULL);
+		pthread_cond_init(&(buff->q_full), NULL);
 	}
 }
 
@@ -35,6 +37,34 @@ void bounded_buffer_init(BoundedBuffer *buff, int capacity) {
  */
 int bounded_buffer_enqueue(BoundedBuffer *buff, char *data) {
 
+	// Check if the buffer has finished
+	if (buff->finished) { return 0;	}
+
+	// Begin critical section
+	pthread_mutex_lock(&(buff->mutex));
+
+	if (buff->finished) { return 0; }
+
+	// If the buffer is full - wait until it isn't full
+	if (buff->size == buff->capacity) {
+		if (buff->finished) { return 0; }
+		pthread_cond_wait(&(buff->q_empty), &(buff->mutex));
+		if (buff->finished) { return 0; }
+	}
+
+	// Enqueues the given string
+	int pos = buff->tail;
+	buff->buffer[pos] = data;
+	buff->tail++;
+	buff->size++;
+
+	// Signal for any thread waiting for a value
+	pthread_cond_signal(&(buff->q_full));
+
+	// Exit critical section
+	pthread_mutex_unlock(&(buff->mutex));
+
+	return 1;
 }
 
 /*
@@ -46,7 +76,39 @@ int bounded_buffer_enqueue(BoundedBuffer *buff, char *data) {
  * If the dequeue operation was successful, it should signal that the buffer is not full.
  * This function should be synchronized on the buffer's mutex!
  */
-char *bounded_buffer_dequeue(BoundedBuffer *buff);
+char *bounded_buffer_dequeue(BoundedBuffer *buff) {
+
+	char* headElement = NULL;
+
+	// Check if the buffer has finished
+	if (buff->finished) { return 0;	}
+
+	// Begin critical section
+	pthread_mutex_lock(&(buff->mutex));
+
+	if (buff->finished) { return 0; }
+
+	// If the buffer is empty - wait until it isn't empty
+	if (!buff->size) {
+		if (buff->finished) { return 0; }
+		pthread_cond_wait(&(buff->q_full), &(buff->mutex));
+		if (buff->finished) { return 0; }
+	}
+
+	// Dequeues the head element
+	int pos = buff->head;
+	headElement = buff->buffer[pos];
+	buff->head++;
+	buff->size--;
+
+	// Signal for any thread waiting for a value
+	pthread_cond_signal(&(buff->q_empty));
+
+	// Exit critical section
+	pthread_mutex_unlock(&(buff->mutex));
+
+	return headElement;
+}
 
 /*
  * Sets the buffer as finished.
@@ -54,9 +116,32 @@ char *bounded_buffer_dequeue(BoundedBuffer *buff);
  * waiting on the condition variables of this buffer.
  * This function should be synchronized on the buffer's mutex!
  */
-void bounded_buffer_finish(BoundedBuffer *buff);
+void bounded_buffer_finish(BoundedBuffer *buff) {
+
+	// Begin critical section
+	pthread_mutex_lock(&(buff->mutex));
+
+	buff->finished = 1;
+
+	pthread_cond_signal(&(buff->q_empty));
+	pthread_cond_signal(&(buff->q_full));
+
+	// Exit critical section
+	pthread_mutex_unlock(&(buff->mutex));
+}
 
 /*
  * Frees the buffer memory and destroys mutex and condition variables.
  */
-void bounded_buffer_destroy(BoundedBuffer *buff);
+void bounded_buffer_destroy(BoundedBuffer *buff) {
+
+	// Frees the buffer memory
+	free(buff->buffer);
+
+	// Destroys mutex
+	pthread_mutex_destroy(&(buff->mutex));
+
+	// Destroys conditions variables
+	pthread_cond_destroy(&(buff->q_full));
+	pthread_cond_destroy(&(buff->q_empty));
+}
