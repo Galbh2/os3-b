@@ -15,6 +15,9 @@
 #define COPY_BUFFER_SIZE 1024
 #define FILE_QUEUE_SIZE 10
 
+#define READ_BUFFER_SIZE = 80
+#define FILE_QUEUE_SIZE 10
+
 #define FILE_ACCESS_RW 0666
 #define PATH_SEPARATOR "/"
 #define PATH_SEPARATOR_CHAR '/'
@@ -42,18 +45,14 @@ typedef struct {
 void *run_listener(void *param) {
 	ListenerData *data;
 	BoundedBuffer *buff;
-	int fd, num, len, start, status;
+	int fd, num;
 	char filename[READ_BUFF_SIZE];
-	char *fn_ptr;
 	char* path;
-
-	//TODO check what are the unused variables
 
 	// Get the pointer to the parameters struct
 	data = (ListenerData*)param;
 
 	// Get the pointer to the BoundedBuffer
-
 	buff = data->buff;
 
 	// Create the pipe
@@ -65,20 +64,15 @@ void *run_listener(void *param) {
 
 		// Read data from pipe
 		while ((num = read(fd, filename, READ_BUFF_SIZE)) > 0) {
-			// Parse read data into file names, enqueue them, etc...
-			// TODO: Complete this part
-			// TODO: Make sure the thread exits at some point
 
+			// Parse read data into file names, enqueue them, etc...
 			char* token;
 			token = strtok(filename, "\n");
-
 			while (token != NULL) {
-
-				//memory allocation for the new path
+				// Memory allocation for the new path
 				path = (char*) malloc(sizeof(char) * strlen(token));
 				strcpy(path, token);
 				token = strtok(NULL, "\n");
-				printf("%s", token);
 
 				// checks if the program wants to exit
 				// free memory, close files and remove the pipe
@@ -92,6 +86,7 @@ void *run_listener(void *param) {
 
 			}
 		}
+		close(fd);
 	}
 }
 
@@ -117,15 +112,15 @@ char *get_file_name(char *path) {
  */
 void copy_file(char *src, char *dest) {
 
-	//open files and check for errors
-	FILE* srcFile = fopen(src, "rb");
+	// open files and check for errors
+	FILE* srcFile = fopen(src, "r");
 	FILE* destFile;
 
 	if (!srcFile) {
 		perror("error while opening files...");
 		return;
 	} else {
-		destFile = fopen(dest, "wb");
+		destFile = fopen(dest, "w");
 		 if (!destFile) {
 			 perror("can't write to dest...");
 			 return;
@@ -171,9 +166,10 @@ void *run_copier(void *param) {
 
 	// checks if the program wants to exit
 	while ( (src = bounded_buffer_dequeue(buff)) != NULL) {
-		//TODO check for error while malloc
+
 		char* name = get_file_name(src);
 		char* dest = (char*) malloc(sizeof(char) * strlen(copierData->dest) + strlen(name));
+		checkAllocation(dest);
 		strcpy(dest, copierData->dest);
 		strcat(dest, name);
 
@@ -184,6 +180,17 @@ void *run_copier(void *param) {
 
 	pthread_exit(NULL);
 }
+
+/**
+ * Helper function for checking memory allocation
+ */
+void checkAllocation(void* p) {
+	if (!p) {
+			fprintf(stderr, "Error in memory allocation");
+			exit(1);
+		}
+}
+
 
 /**
  * Helper function for printing a queue
@@ -215,36 +222,58 @@ void printBuffer(BoundedBuffer* b) {
  */
 int main(int argc, char *argv[]) {
 
-	//TODO add command line arguments
-
 	pthread_t listener, copier;
 
-	// creates the buffer
-	int capacity = 2;
+	char* pipeName = argv[1];
+	char* dst = argv[2];
 
-	// init data for the threads
+	// creates the buffer
+	char temporaryBuffer[READ_BUFF_SIZE] = { 0 };
+	int fd = 0;
+	// Initialize data for the threads
 	BoundedBuffer buff;
 	BoundedBuffer* p_boundedBuffer = &buff;
-	bounded_buffer_init(p_boundedBuffer, capacity);
+	bounded_buffer_init(p_boundedBuffer, FILE_QUEUE_SIZE);
 
-	ListenerData listenerDate;
-	listenerDate.buff = p_boundedBuffer;
-	listenerDate.pipe = "./the_pipe";
+	ListenerData listenerData;
+	listenerData.buff = p_boundedBuffer;
+	listenerData.pipe = pipeName;
 
 	CopierData copierData;
 	copierData.buff = p_boundedBuffer;
-	copierData.dest = "./copies/";
+	copierData.dest = dst;
 
 	// runs the threads
-	pthread_create(&listener, NULL, run_listener, (void*)(&listenerDate));
+	pthread_create(&listener, NULL, run_listener, (void*)(&listenerData));
 	pthread_create(&copier, NULL, run_copier, (void*)(&copierData));
 
-	// Join threads
-	pthread_join(listener, NULL);
-	pthread_join(copier, NULL);
+	// Checking if command is "CMD_EXIT" - have to exit
 
-	// Free allocated resources
-	bounded_buffer_destroy(p_boundedBuffer);
+	while (1) {
+		fgets(temporaryBuffer, READ_BUFF_SIZE, stdin);
 
-	return 0;
+		// Omit '\n'
+		temporaryBuffer[strlen(temporaryBuffer) - 1] = 0;
+
+		if (!strcmp(temporaryBuffer, "CMD_EXIT")) {
+			bounded_buffer_finish(p_boundedBuffer);
+
+			// Join thread
+			pthread_join(copier, NULL);
+
+			// Stopping the thread
+			fd = open(pipeName, O_WRONLY);
+			write(fd, "exit", 5);
+
+			// Join thread
+			pthread_join(listener, NULL);
+
+			// Free allocated resources
+			bounded_buffer_destroy(p_boundedBuffer);
+
+			return 0;
+		}
+	}
+	return 1;
 }
+

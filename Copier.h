@@ -38,6 +38,16 @@ void copy_file(char *src, char *dest);
 void *run_copier(void *param);
 
 /*
+ * Returns the name of a given file without the directory path.
+ */
+char *get_file_name(char *path);
+
+/**
+ * Helper function for checking memory allocation
+ */
+void checkAllocation(void* p);
+
+/*
  * Main function.
  * Reads command line arguments in the format:
  * 		./Copier pipe_name destination_dir
