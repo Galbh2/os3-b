@@ -1,3 +1,9 @@
+/*
+ ============================================================================
+ Name        : BoundedBuffer.c
+ Author      : Michal Momika (204200026) & Gel Bem Haim (301732798)
+ ============================================================================
+ */
 #include "BoundedBuffer.h"
 #include <stdio.h>
 #include <stdlib.h>
